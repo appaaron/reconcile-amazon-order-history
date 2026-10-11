@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amazon Order History</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1d2330; --muted:#667085; --card:#fff; --line:#e3e6ec; --accent:#2457d6; --hl:#fff1a8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171f; --fg:#e6e9f0; --muted:#98a2b3; --card:#1d222d; --line:#2e3545; --accent:#7ba3ff; --hl:#5c4a00; }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,sans-serif; }
+  header { padding:16px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  h1 { font-size:18px; margin:0; flex:1 1 auto; }
+  select { padding:7px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  input[type=search] { padding:8px 10px; width:min(360px,100%); border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  main { padding:0 16px 24px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
+  th.sortable:hover { color:var(--accent); }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.order { cursor:pointer; }
+  tr.order.rec > td:not(.chk) { opacity:.55; }
+  td.chk, th.chk { width:1%; text-align:center; }
+  tr.order:hover { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  /* Open order: row + detail share one accent outline */
+  tr.order.open > td { background:color-mix(in srgb, var(--accent) 14%, var(--card)); border-top:2px solid var(--accent); font-weight:600; }
+  tr.order.open > td:first-child, tr.detail > td { border-left:4px solid var(--accent); }
+  tr.order.open > td:last-child, tr.detail > td { border-right:2px solid var(--accent); }
+  tr.detail > td { border-bottom:2px solid var(--accent); }
+  .detail .inner { border:1px solid var(--line); border-radius:6px; background:var(--card); padding:10px 12px 12px; margin-bottom:10px; }
+  .detail .inner:last-child { margin-bottom:0; }
+  .caret { display:inline-block; width:1em; color:var(--muted); }
+  .detail > td { background:color-mix(in srgb, var(--accent) 5%, var(--bg)); padding:12px 16px 16px 24px; }
+  .detail h3 { margin:12px 0 6px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .detail h3:first-child { margin-top:0; }
+  .detail table { font-size:13px; }
+  mark { background:var(--hl); color:inherit; }
+  a { color:var(--accent); }
+  .muted { color:var(--muted); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Amazon Order History <span class="muted" id="count"></span></h1>
+  <label class="muted">Currency
+    <select id="mode"><option value="override">Show all as</option><option value="asis">As exported ($0 orders blank)</option></select>
+    <select id="cur"></select>
+  </label>
+  <label class="muted"><input type="checkbox" id="showRec"> Show reconciled <span id="hidden"></span></label>
+  <input type="search" id="q" placeholder="Search item, ASIN, order ID or amount (e.g. 44.10)" autofocus>
+</header>
+<main><div class="scroll"><table>
+  <thead><tr id="head"></tr></thead>
+  <tbody id="body"></tbody>
+</table></div></main>
+<script>
+const COLS = [
+  {key:'orderId', label:'Order ID'},
+  {key:'orderDate', label:'Date'},
+  {key:'itemCount', label:'Items', num:true},
+  {key:'totalAmount', label:'Total', num:true},
+  {key:'totalSavings', label:'Savings', num:true},
+  {key:'taxEstimate', label:'Tax/fees (est.)', num:true},
+  {key:'orderStatus', label:'Status'},
+];
+const ITEM_COLS = [
+  {key:'title', label:'Item'},
+  {key:'asin', label:'ASIN'},
+  {key:'quantity', label:'Qty', num:true},
+  {key:'price', label:'Unit price', num:true},
+  {key:'discount', label:'Discount', num:true},
+  {key:'lineTotal', label:'Line total', num:true},
+];
+let showRec = false, orders = [], sort = {key:'orderDate', dir:'desc'}, query = '';
+const open = new Set(), itemSort = {};
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Display settings (persisted in this browser). Modes:
+//  override: show every amount in the chosen currency (default USD), $0 orders show 0.00.
+//  asis:     use each order's exported currency; $0 orders show a dash (null).
+const CURRENCIES = ['USD','EUR','GBP','CAD','AUD'];
+const cfg = (() => { try { return {mode:'override', currency:'USD', ...JSON.parse(localStorage.getItem('cfg')||'{}')}; } catch { return {mode:'override', currency:'USD'}; } })();
+const saveCfg = () => { try { localStorage.setItem('cfg', JSON.stringify(cfg)); } catch {} };
+const effCur = o => cfg.mode === 'override' ? cfg.currency : (o.totalAmount === 0 ? null : o.currency);
+const money = (n, o) => {
+  const c = effCur(o);
+  if (!c) return '—';
+  try { return new Intl.NumberFormat(undefined,{style:'currency',currency:c}).format(n); } catch { return n.toFixed(2); }
+};
+function hl(text) {
+  const t = esc(text), q = query.trim();
+  if (!q) return t;
+  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
+  return t.replace(re, m => `<mark>${m}</mark>`);
+}
+const arrow = (s, key) => s.key === key ? (s.dir === 'asc' ? ' ▲' : ' ▼') : '';
+
+function headRow(cols, s, attr) {
+  return cols.map(c => `<th class="sortable ${c.num?'num':''}" data-${attr}="${c.key}">${c.label}${arrow(s,c.key)}</th>`).join('');
+}
+
+const taxCell = o => o.taxEstimate == null ? '<span class="muted" title="Not estimated: order has promotions or savings">—</span>' : hl(money(o.taxEstimate,o));
+
+function itemsTable(o) {
+  const s = itemSort[o.orderId] || (itemSort[o.orderId] = {key:'title', dir:'asc'});
+  const items = [...o.items].sort((a,b) => {
+    const x=a[s.key], y=b[s.key], r = typeof x === 'number' ? x-y : String(x).localeCompare(y);
+    return s.dir === 'asc' ? r : -r;
+  });
+  return `<div class="scroll"><table data-order="${esc(o.orderId)}"><thead><tr>${
+    headRow(ITEM_COLS, s, 'icol')
+  }</tr></thead><tbody>${items.map(i => `<tr>
+    <td><a href="${esc(i.itemUrl)}" target="_blank" rel="noopener">${hl(i.title)}</a></td>
+    <td>${hl(i.asin)}</td><td class="num">${i.quantity}</td>
+    <td class="num">${hl(money(i.price,o))}</td><td class="num">${i.discount ? money(i.discount,o) : ''}</td>
+    <td class="num">${hl(money(i.lineTotal,o))}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// The exporter's catch-all "Additional discount" can include gift cards or other credits, not just coupons.
+const promoLabel = d => /^additional discount$/i.test(d.trim())
+  ? 'Additional discount <span class="muted">(may include gift card or other credits)</span>' : esc(d);
+
+function detail(o) {
+  const promos = o.promotions.length
+    ? `<ul>${o.promotions.map(p => `<li>${promoLabel(p.description)} <b>${money(p.amount,o)}</b></li>`).join('')}</ul>` : '';
+  return `<tr class="detail"><td colspan="${COLS.length + 2}">
+    <div class="inner"><h3>Transaction &middot; ${esc(o.orderId)}</h3>
+    <div class="scroll"><table><thead><tr><th>Date</th><th class="num">Amount charged</th><th class="num">Savings</th><th class="num" title="Total minus item subtotal; includes shipping/fees. Shown only when the order has no promotions or savings.">Tax/fees (est.)</th><th>Currency</th><th>Status</th><th>Ship to</th><th></th></tr></thead>
+    <tbody><tr><td>${esc(o.orderDate)}</td><td class="num">${hl(money(o.totalAmount,o))}</td>
+    <td class="num">${money(o.totalSavings,o)}</td><td class="num">${taxCell(o)}</td><td>${esc(effCur(o) || '—')}</td><td>${esc(o.orderStatus)||'—'}</td>
+    <td>${esc(o.recipient)}</td><td><a href="${esc(o.detailsUrl)}" target="_blank" rel="noopener">Amazon details</a></td></tr></tbody></table></div>
+    ${promos}</div>
+    <div class="inner"><h3>Items &middot; ${esc(o.orderId)} (${o.items.length} lines)</h3>${itemsTable(o)}</div></td></tr>`;
+}
+
+function render() {
+  document.getElementById('head').innerHTML = '<th></th><th class="chk" title="Reconciled">&#10003;</th>' + headRow(COLS, sort, 'col');
+  document.getElementById('count').textContent = `(${orders.length} orders)`;
+  document.getElementById('body').innerHTML = orders.map(o => `
+    <tr class="order ${open.has(o.orderId)?'open':''} ${o.reconciled?'rec':''}" data-id="${esc(o.orderId)}">
+      <td><span class="caret">${open.has(o.orderId)?'▾':'▸'}</span></td>
+      <td class="chk"><input type="checkbox" class="rec" ${o.reconciled?'checked':''} title="Reconciled"></td>
+      <td>${hl(o.orderId)}</td><td>${esc(o.orderDate)}</td><td class="num">${o.itemCount}</td>
+      <td class="num">${hl(money(o.totalAmount,o))}</td><td class="num">${o.totalSavings?money(o.totalSavings,o):''}</td>
+      <td class="num">${taxCell(o)}</td>
+      <td>${esc(o.orderStatus)||'—'}</td></tr>${open.has(o.orderId) ? detail(o) : ''}`).join('')
+    || '<tr><td colspan="9" class="muted">No orders match.</td></tr>';
+}
+
+async function load() {
+  const p = new URLSearchParams({q: query, sort: sort.key, dir: sort.dir, show_reconciled: showRec});
+  const r = await (await fetch('/api/orders?' + p)).json();
+  orders = r.orders;
+  document.getElementById('hidden').textContent = !showRec && r.hidden_count ? `(${r.hidden_count} hidden)` : '';
+  render();
+}
+
+document.getElementById('head').addEventListener('click', e => {
+  const th = e.target.closest('[data-col]'); if (!th) return;
+  const k = th.dataset.col;
+  sort = {key:k, dir: sort.key === k && sort.dir === 'asc' ? 'desc' : 'asc'};
+  load();
+});
+document.getElementById('showRec').addEventListener('change', e => { showRec = e.target.checked; load(); });
+document.getElementById('body').addEventListener('change', async e => {
+  const box = e.target.closest('input.rec'); if (!box) return;
+  const id = box.closest('tr.order').dataset.id;
+  await fetch(`/api/orders/${encodeURIComponent(id)}/reconciled`, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reconciled: box.checked})});
+  load();
+});
+document.getElementById('body').addEventListener('click', e => {
+  if (e.target.closest('td.chk')) return; // checkbox clicks must not expand the row
+  const ith = e.target.closest('[data-icol]');
+  if (ith) {
+    const id = ith.closest('table').dataset.order, k = ith.dataset.icol, s = itemSort[id];
+    itemSort[id] = {key:k, dir: s.key === k && s.dir === 'asc' ? 'desc' : 'asc'};
+    return render();
+  }
+  const row = e.target.closest('tr.order');
+  if (row && !e.target.closest('a')) {
+    const id = row.dataset.id;
+    open.has(id) ? open.delete(id) : open.add(id);
+    render();
+  }
+});
+let timer;
+document.getElementById('q').addEventListener('input', e => {
+  clearTimeout(timer);
+  timer = setTimeout(() => { query = e.target.value; load(); }, 200);
+});
+const modeEl = document.getElementById('mode'), curEl = document.getElementById('cur');
+curEl.innerHTML = CURRENCIES.map(c => `<option>${c}</option>`).join('');
+modeEl.value = cfg.mode; curEl.value = cfg.currency;
+const syncCfg = () => { curEl.disabled = cfg.mode === 'asis'; };
+syncCfg();
+modeEl.addEventListener('change', () => { cfg.mode = modeEl.value; saveCfg(); syncCfg(); render(); });
+curEl.addEventListener('change', () => { cfg.currency = curEl.value; saveCfg(); render(); });
+load();
+</script>
+</body>
+</html>
