@@ -41,6 +41,7 @@ def _normalize(order: dict[str, Any], source: str) -> dict[str, Any]:
     # Estimate only when nothing else (promotions/savings) can explain the gap between items and total.
     # Includes any shipping or fees, since the export does not itemize them.
     tax_estimate = None if promotions or savings else round(total - sum(i["lineTotal"] for i in items), 2)
+    subtotal = sum(i["lineTotal"] for i in items)
     return {
         "orderId": order["orderId"],
         "orderDate": order.get("orderDate", ""),
@@ -62,6 +63,7 @@ def _normalize(order: dict[str, Any], source: str) -> dict[str, Any]:
         ),
         "items": items,
         "taxEstimate": tax_estimate,
+        "itemSubtotal": round(subtotal, 2),
         "itemCount": sum(i["quantity"] for i in items),
         "source": source,
     }

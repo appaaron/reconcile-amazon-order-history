@@ -1,4 +1,4 @@
-# Render Amazon Order History
+# Reconcile Amazon Order History
 
 Takes the output of [order-history-exporter-for-amazon](https://github.com/xenolphthalein/order-history-exporter-for-amazon#usage) and shows it in a local website, to make matching Amazon orders against your bank and card transactions easier.
 
@@ -18,12 +18,12 @@ You do **not** need to install Python yourself, and you do **not** need Git. Int
 
 ### 1. Download this project
 
-On this project's GitHub page, click the green **Code** button, then **Download ZIP**.
+Go to https://github.com/appaaron/reconcile-amazon-order-history, click the green **Code** button, then **Download ZIP**.
 
 - **Windows:** right-click the downloaded ZIP and choose **Extract All**.
 - **Mac:** double-click the downloaded ZIP.
 
-Move the extracted folder somewhere easy to find, such as Documents. It is called `render-amazon-order-history` (it may have `-main` on the end).
+Move the extracted folder somewhere easy to find, such as Documents. It is called `reconcile-amazon-order-history` (it may have `-main` on the end).
 
 ### 2. Open a terminal and install uv
 

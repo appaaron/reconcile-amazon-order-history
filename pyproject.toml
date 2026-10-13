@@ -1,5 +1,5 @@
 [project]
-name = "render-amazon-order-history"
+name = "reconcile-amazon-order-history"
 version = "0.1.0"
 description = "Local website to browse and reconcile Amazon order history exports"
 requires-python = ">=3.13"

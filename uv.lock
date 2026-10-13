@@ -408,7 +408,7 @@ wheels = [
 ]
 
 [[package]]
-name = "render-amazon-order-history"
+name = "reconcile-amazon-order-history"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

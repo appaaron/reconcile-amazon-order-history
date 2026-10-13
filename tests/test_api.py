@@ -92,3 +92,8 @@ def test_partial_amount_with_trailing_dot(tmp_path):
     for q in ("34", "34.", "34.8", "34.81", "$34.81"):
         assert len(data.query_orders(orders, q)) == 1, q
     assert data.query_orders(orders, "35.") == []
+
+
+def test_item_subtotal_exposed(tmp_path):
+    write(tmp_path, "a.json", [ORDER])
+    assert data.load_orders(tmp_path)[0]["itemSubtotal"] == 39.9

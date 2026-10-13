@@ -36,6 +36,8 @@
   .detail h3 { margin:12px 0 6px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   .detail h3:first-child { margin-top:0; }
   .detail table { font-size:13px; }
+  .warn { display:inline-block; margin-left:6px; padding:0 6px; border-radius:10px; background:#f5a623; color:#222; font-size:11px; font-weight:600; cursor:help; }
+  .warnbox { margin:0 0 8px; padding:8px 10px; border-left:4px solid #f5a623; background:color-mix(in srgb, #f5a623 14%, var(--card)); }
   mark { background:var(--hl); color:inherit; }
   a { color:var(--accent); }
   .muted { color:var(--muted); }
@@ -49,6 +51,7 @@
     <select id="mode"><option value="override">Show all as</option><option value="asis">As exported ($0 orders blank)</option></select>
     <select id="cur"></select>
   </label>
+  <label class="muted" title="Used to flag orders where the items do not add up to the total">Local tax % <input type="number" id="tax" min="0" max="30" step="0.1" style="width:4.5em"></label>
   <label class="muted"><input type="checkbox" id="showRec"> Show reconciled <span id="hidden"></span></label>
   <input type="search" id="q" placeholder="Search item, ASIN, order ID or amount (e.g. 44.10)" autofocus>
 </header>
@@ -82,7 +85,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 //  override: show every amount in the chosen currency (default USD), $0 orders show 0.00.
 //  asis:     use each order's exported currency; $0 orders show a dash (null).
 const CURRENCIES = ['USD','EUR','GBP','CAD','AUD'];
-const cfg = (() => { try { return {mode:'override', currency:'USD', ...JSON.parse(localStorage.getItem('cfg')||'{}')}; } catch { return {mode:'override', currency:'USD'}; } })();
+const cfg = (() => { try { return {mode:'override', currency:'USD', taxRate:11, ...JSON.parse(localStorage.getItem('cfg')||'{}')}; } catch { return {mode:'override', currency:'USD', taxRate:11}; } })();
 const saveCfg = () => { try { localStorage.setItem('cfg', JSON.stringify(cfg)); } catch {} };
 const effCur = o => cfg.mode === 'override' ? cfg.currency : (o.totalAmount === 0 ? null : o.currency);
 const money = (n, o) => {
@@ -102,7 +105,22 @@ function headRow(cols, s, attr) {
   return cols.map(c => `<th class="sortable ${c.num?'num':''}" data-${attr}="${c.key}">${c.label}${arrow(s,c.key)}</th>`).join('');
 }
 
-const taxCell = o => o.taxEstimate == null ? '<span class="muted" title="Not estimated: order has promotions or savings">—</span>' : hl(money(o.taxEstimate,o));
+// Flag orders whose estimated tax/fees are 1 or more percentage points above the local tax rate.
+const MISMATCH_POINTS = 1;
+const taxPct = o => o.taxEstimate == null || !(o.itemSubtotal > 0) ? null : o.taxEstimate / o.itemSubtotal * 100;
+const mismatch = o => { const p = taxPct(o); return p !== null && (p < 0 || p - cfg.taxRate >= MISMATCH_POINTS - 1e-9); };
+const mismatchText = o => {
+  const p = taxPct(o);
+  const gap = p < 0 ? 'The charge is lower than the listed item prices'
+                    : `The charge is ${p.toFixed(1)}% more than the listed item prices`;
+  return `${gap}, but your local tax rate is ${cfg.taxRate}%. An item may be missing or returned. Check this order on Amazon. This is a guess from the amounts, not proof.`;
+};
+const warnBadge = o => mismatch(o) ? `<span class="warn" title="${esc(mismatchText(o))}">Check items</span>` : '';
+const taxCell = o => mismatch(o)
+  ? '<span class="muted" title="Not shown: the listed items do not add up to the total (see Check items)">—</span>'
+  : o.taxEstimate == null
+    ? '<span class="muted" title="Not estimated: order has promotions or savings">—</span>'
+    : hl(money(o.taxEstimate,o));
 
 function itemsTable(o) {
   const s = itemSort[o.orderId] || (itemSort[o.orderId] = {key:'title', dir:'asc'});
@@ -128,6 +146,7 @@ function detail(o) {
     ? `<ul>${o.promotions.map(p => `<li>${promoLabel(p.description)} <b>${money(p.amount,o)}</b></li>`).join('')}</ul>` : '';
   return `<tr class="detail"><td colspan="${COLS.length + 2}">
     <div class="inner"><h3>Transaction &middot; ${esc(o.orderId)}</h3>
+    ${mismatch(o) ? `<div class="warnbox"><b>Check items.</b> ${esc(mismatchText(o))}</div>` : ''}
     <div class="scroll"><table><thead><tr><th>Date</th><th class="num">Amount charged</th><th class="num">Savings</th><th class="num" title="Total minus item subtotal; includes shipping/fees. Shown only when the order has no promotions or savings.">Tax/fees (est.)</th><th>Currency</th><th>Status</th><th>Ship to</th><th></th></tr></thead>
     <tbody><tr><td>${esc(o.orderDate)}</td><td class="num">${hl(money(o.totalAmount,o))}</td>
     <td class="num">${money(o.totalSavings,o)}</td><td class="num">${taxCell(o)}</td><td>${esc(effCur(o) || '—')}</td><td>${esc(o.orderStatus)||'—'}</td>
@@ -143,7 +162,7 @@ function render() {
     <tr class="order ${open.has(o.orderId)?'open':''} ${o.reconciled?'rec':''}" data-id="${esc(o.orderId)}">
       <td><span class="caret">${open.has(o.orderId)?'▾':'▸'}</span></td>
       <td class="chk"><input type="checkbox" class="rec" ${o.reconciled?'checked':''} title="Reconciled"></td>
-      <td>${hl(o.orderId)}</td><td>${esc(o.orderDate)}</td><td class="num">${o.itemCount}</td>
+      <td>${hl(o.orderId)}${warnBadge(o)}</td><td>${esc(o.orderDate)}</td><td class="num">${o.itemCount}</td>
       <td class="num">${hl(money(o.totalAmount,o))}</td><td class="num">${o.totalSavings?money(o.totalSavings,o):''}</td>
       <td class="num">${taxCell(o)}</td>
       <td>${esc(o.orderStatus)||'—'}</td></tr>${open.has(o.orderId) ? detail(o) : ''}`).join('')
@@ -195,6 +214,13 @@ document.getElementById('q').addEventListener('input', e => {
 const modeEl = document.getElementById('mode'), curEl = document.getElementById('cur');
 curEl.innerHTML = CURRENCIES.map(c => `<option>${c}</option>`).join('');
 modeEl.value = cfg.mode; curEl.value = cfg.currency;
+const taxEl = document.getElementById('tax');
+taxEl.value = cfg.taxRate;
+taxEl.addEventListener('change', () => {
+  const v = parseFloat(taxEl.value);
+  cfg.taxRate = Number.isFinite(v) && v >= 0 ? v : 11;
+  taxEl.value = cfg.taxRate; saveCfg(); render();
+});
 const syncCfg = () => { curEl.disabled = cfg.mode === 'asis'; };
 syncCfg();
 modeEl.addEventListener('change', () => { cfg.mode = modeEl.value; saveCfg(); syncCfg(); render(); });

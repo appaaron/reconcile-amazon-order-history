@@ -38,6 +38,7 @@ The export has no separate payment records. A **transaction** in this app is the
 - Currency display is a browser-side setting (saved in localStorage). Default: show every amount in USD. Alternative: use each order's exported currency, with $0 orders shown as a dash. The exporter sometimes mislabels currency (for example EUR on $0 orders), so the data's `currency` is not fully trusted.
 - Reconciled orders: `PUT /api/orders/{id}/reconciled` with `{"reconciled": bool}`. Stored in an in-memory set in `app/main.py`, so it resets when the server restarts and is never written to disk. `GET /api/orders` hides them unless `show_reconciled=true`.
 - The exporter's "Additional discount" promotion is a catch-all that may include gift cards or other credits. The UI labels it that way. The export has no gift card field.
+- The "Check items" badge is computed in the browser: it appears when an order's estimated tax/fees (see `taxEstimate`) are 1 or more percentage points above the local tax rate setting (default 11%, saved in localStorage), or negative. The server only supplies `itemSubtotal`. It hints at a missing or returned item, since the export has no return or refund data. The tax/fees column shows a dash for flagged orders, because the gap would include the missing item. It is a guess, not proof.
 - Orders are sortable by every column server-side. Item columns sort client-side within an order.
 
 ## Conventions

@@ -428,4 +428,5 @@ FodyWeavers.xsd
 #*.lscache
 
 # Personal Amazon exports (contain names and addresses)
-export-data/
+export-data/*
+!export-data/.gitkeep
