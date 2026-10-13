@@ -46,13 +46,14 @@
 </head>
 <body>
 <header>
-  <h1>Amazon Order History <span class="muted" id="count"></span></h1>
+  <h1>Amazon Order History <span class="muted" id="count"></span> <span class="muted" id="range"></span></h1>
   <label class="muted">Currency
     <select id="mode"><option value="override">Show all as</option><option value="asis">As exported ($0 orders blank)</option></select>
     <select id="cur"></select>
   </label>
   <label class="muted" title="Used to flag orders where the items do not add up to the total">Local tax % <input type="number" id="tax" min="0" max="30" step="0.1" style="width:4.5em"></label>
   <label class="muted"><input type="checkbox" id="showRec"> Show reconciled <span id="hidden"></span></label>
+  <a id="csv" href="/api/orders.csv" download title="Download the orders shown (current search, sort and reconciled filter), one row per item">Export CSV</a>
   <input type="search" id="q" placeholder="Search item, ASIN, order ID or amount (e.g. 44.10)" autofocus>
 </header>
 <main><div class="scroll"><table>
@@ -171,8 +172,11 @@ function render() {
 
 async function load() {
   const p = new URLSearchParams({q: query, sort: sort.key, dir: sort.dir, show_reconciled: showRec});
+  document.getElementById('csv').href = '/api/orders.csv?' + p;
   const r = await (await fetch('/api/orders?' + p)).json();
   orders = r.orders;
+  const dr = r.date_range;
+  document.getElementById('range').textContent = dr.from ? `· ${dr.from} to ${dr.to}` : '';
   document.getElementById('hidden').textContent = !showRec && r.hidden_count ? `(${r.hidden_count} hidden)` : '';
   render();
 }

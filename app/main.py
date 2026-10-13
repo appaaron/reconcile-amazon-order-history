@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import data
@@ -14,22 +14,44 @@ app = FastAPI(title="Amazon Order History")
 reconciled: set[str] = set()
 
 
-@app.get("/api/orders")
-def list_orders(
-    q: str = "",
-    sort: str = Query("orderDate", pattern="^(" + "|".join(data.SORT_KEYS) + ")$"),
-    dir: str = Query("desc", pattern="^(asc|desc)$"),
-    show_reconciled: bool = False,
-):
-    """Orders (each with its transaction fields and items), reloaded from export-data on every call.
+SortParam = Query("orderDate", pattern="^(" + "|".join(data.SORT_KEYS) + ")$")
+DirParam = Query("desc", pattern="^(asc|desc)$")
 
-    Reconciled orders are hidden unless show_reconciled is true; hidden_count says how many were hidden.
-    """
+
+@app.get("/api/orders.csv")
+def export_csv(q: str = "", sort: str = SortParam, dir: str = DirParam, show_reconciled: bool = False):
+    """The orders list as CSV, one row per item. Takes the same filters as /api/orders."""
     orders = data.query_orders(data.load_orders(), q, sort, dir)
     for o in orders:
         o["reconciled"] = o["orderId"] in reconciled
+    if not show_reconciled:
+        orders = [o for o in orders if not o["reconciled"]]
+    # BOM so Excel reads the file as UTF-8
+    body = "﻿" + data.orders_to_csv(orders)
+    return Response(
+        body, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="amazon-orders.csv"'},
+    )
+
+
+@app.get("/api/orders")
+def list_orders(q: str = "", sort: str = SortParam, dir: str = DirParam, show_reconciled: bool = False):
+    """Orders (each with its transaction fields and items), reloaded from export-data on every call.
+
+    Reconciled orders are hidden unless show_reconciled is true; hidden_count says how many were hidden.
+    date_range is the earliest and latest order date across all loaded orders, ignoring search and reconciled filters.
+    """
+    all_orders = data.load_orders()
+    orders = data.query_orders(all_orders, q, sort, dir)
+    for o in orders:
+        o["reconciled"] = o["orderId"] in reconciled
     visible = orders if show_reconciled else [o for o in orders if not o["reconciled"]]
-    return {"count": len(visible), "hidden_count": len(orders) - len(visible), "orders": visible}
+    return {
+        "count": len(visible),
+        "hidden_count": len(orders) - len(visible),
+        "date_range": data.date_range(all_orders),
+        "orders": visible,
+    }
 
 
 @app.put("/api/orders/{order_id}/reconciled")

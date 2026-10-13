@@ -4,6 +4,14 @@ Takes the output of [order-history-exporter-for-amazon](https://github.com/xenol
 
 Everything runs on your own computer. Your order data is never uploaded anywhere.
 
+![The orders list, with the date range, search, reconciled checkboxes and "Check items" badges](docs/screenshots/orders.png)
+
+Click an order to see its transaction and items:
+
+![An expanded order showing the transaction details and each item](docs/screenshots/order-detail.png)
+
+(Screenshots use made-up data from `examples/sample-orders.json`.)
+
 ## What you need
 
 | Item | Windows 10/11 | Mac (macOS) |
@@ -58,6 +66,8 @@ Put that file in the `export-data` folder inside this project. If the folder doe
 
 Your export contains names and addresses, so keep that file private.
 
+Want to try the website first? Copy `examples/sample-orders.json` into `export-data` to see it with made-up orders, then delete it when you add your real export.
+
 ### 4. Start the website
 
 In your terminal, go into the project folder:
@@ -90,6 +100,7 @@ Open your browser and go to **http://127.0.0.1:8000**
 - **Sort:** click any column heading. Click again to reverse.
 - **Search:** type an item name, ASIN, order ID or an amount such as `34.81`. Partial amounts like `34.8` work too.
 - **Reconciled:** tick the box on an order to hide it once you have matched it. Use **Show reconciled** to bring those back. This is remembered only until you stop the website.
+- **Export CSV:** downloads the orders currently shown (respecting your search, sort and Show reconciled setting) as a spreadsheet file, one row per item. Order totals repeat on each of an order's rows, so do not add up the Total column.
 - **Currency:** by default every amount is shown in US dollars. The Amazon export sometimes labels orders with the wrong currency, such as euros on a $0.00 order. The currency menu lets you choose another currency, or show amounts as exported.
 
 **Tax/fees (est.)** is the order total minus the item prices. It also includes any shipping or fees. It is shown only for orders with no promotions or savings. The export does not contain tax directly.

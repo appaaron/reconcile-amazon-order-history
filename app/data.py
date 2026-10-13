@@ -1,6 +1,8 @@
 """Load and query Amazon order-history JSON exports."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from pathlib import Path
@@ -83,6 +85,45 @@ def load_orders(data_dir: Path = DEFAULT_DATA_DIR) -> list[dict[str, Any]]:
             if isinstance(order, dict) and order.get("orderId"):
                 by_id[order["orderId"]] = _normalize(order, path.name)
     return list(by_id.values())
+
+
+def date_range(orders: list[dict[str, Any]]) -> dict[str, str | None]:
+    """Earliest and latest orderDate across all orders (None when there are no dates)."""
+    dates = [o["orderDate"] for o in orders if o["orderDate"]]
+    return {"from": min(dates, default=None), "to": max(dates, default=None)}
+
+
+CSV_COLUMNS = [
+    "orderId", "orderDate", "orderStatus", "currency", "totalAmount", "totalSavings", "taxEstimate",
+    "reconciled", "itemTitle", "asin", "quantity", "unitPrice", "lineTotal", "itemDiscount",
+]
+
+
+def _csv_text(value: Any) -> Any:
+    """Stop spreadsheets from running a text cell as a formula."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def orders_to_csv(orders: list[dict[str, Any]]) -> str:
+    """One row per item. Order-level columns repeat on every row of the order, so do not sum them
+    across rows. An order with no items still gets one row, with blank item columns."""
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(CSV_COLUMNS)
+    for o in orders:
+        head = [
+            o["orderId"], o["orderDate"], _csv_text(o["orderStatus"]), o["currency"], o["totalAmount"],
+            o["totalSavings"], "" if o["taxEstimate"] is None else o["taxEstimate"],
+            "yes" if o.get("reconciled") else "no",
+        ]
+        for i in o["items"] or [None]:
+            item = ["", "", "", "", "", ""] if i is None else [
+                _csv_text(i["title"]), i["asin"], i["quantity"], i["price"], i["lineTotal"], i["discount"],
+            ]
+            writer.writerow(head + item)
+    return out.getvalue()
 
 
 def _amount_strings(order: dict[str, Any]) -> list[str]:
